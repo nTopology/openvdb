@@ -1,6 +1,6 @@
 ///////////////////////////////////////////////////////////////////////////
 //
-// Copyright (c) 2012-2015 DreamWorks Animation LLC
+// Copyright (c) 2012-2016 DreamWorks Animation LLC
 //
 // All rights reserved. This software is distributed under the
 // Mozilla Public License 2.0 ( http://www.mozilla.org/MPL/2.0/ )
@@ -481,17 +481,33 @@ public:
     virtual void clipUnallocatedNodes();
 #endif
 
+    //@{
     /// @brief Set all voxels within a given axis-aligned box to a constant value.
-    /// If necessary, subdivide tiles that intersect the box.
-    /// @param bbox           inclusive coordinates of opposite corners of an axis-aligned box
-    /// @param value          the value to which to set voxels within the box
-    /// @param active         if true, mark voxels within the box as active,
-    ///                       otherwise mark them as inactive
+    /// @param bbox    inclusive coordinates of opposite corners of an axis-aligned box
+    /// @param value   the value to which to set voxels within the box
+    /// @param active  if true, mark voxels within the box as active,
+    ///                otherwise mark them as inactive
     /// @note This operation generates a sparse, but not always optimally sparse,
-    /// representation of the filled box.  Follow fill operations with a prune()
+    /// representation of the filled box. Follow fill operations with a prune()
     /// operation for optimal sparseness.
-    void fill(const CoordBBox& bbox, const ValueType& value, bool active = true);
+    void sparseFill(const CoordBBox& bbox, const ValueType& value, bool active = true);
+    void fill(const CoordBBox& bbox, const ValueType& value, bool active = true)
+    {
+        this->sparseFill(bbox, value, active);
+    }
+    //@}
 
+    /// @brief Set all voxels within a given axis-aligned box to a constant value.
+    /// @param bbox    inclusive coordinates of opposite corners of an axis-aligned box.
+    /// @param value   the value to which to set voxels within the box.
+    /// @param active  if true, mark voxels within the box as active,
+    ///                otherwise mark them as inactive.
+    ///
+    /// @note This operation generates a dense representation of the
+    ///       filled box. This implies that active tiles are voxelized, i.e. only active 
+    ///       voxels are generated from this fill operation.
+    void denseFill(const CoordBBox& bbox, const ValueType& value, bool active = true);
+    
     /// @brief Reduce the memory footprint of this tree by replacing with tiles
     /// any nodes whose values are all the same (optionally to within a tolerance)
     /// and have the same active state.
@@ -502,9 +518,15 @@ public:
         mRoot.prune(tolerance);
     }
 
+    //@{
     /// @brief Add the given leaf node to this tree, creating a new branch if necessary.
     /// If a leaf node with the same origin already exists, replace it.
-    void addLeaf(LeafNodeType& leaf) { mRoot.addLeaf(&leaf); }
+    ///
+    /// @warning Ownership of the leaf is transferred to the tree so
+    /// the client code should not attempt to delete the leaf pointer!
+    void addLeaf(LeafNodeType* leaf) { assert(leaf); mRoot.addLeaf(leaf); }
+    OPENVDB_DEPRECATED void addLeaf(LeafNodeType& leaf) { mRoot.addLeaf(&leaf); }
+    //@}
 
     /// @brief Add a tile containing voxel (x, y, z) at the specified tree level,
     /// creating a new branch if necessary.  Delete any existing lower-level nodes
@@ -653,8 +675,13 @@ public:
     /// Min and max are both inclusive.
     virtual void getIndexRange(CoordBBox& bbox) const { mRoot.getIndexRange(bbox); }
 
-    /// Densify active tiles, i.e., replace them with leaf-level active voxels.
-    void voxelizeActiveTiles();
+    /// @brief Densify active tiles, i.e., replace them with leaf-level active voxels.
+    ///
+    /// @param threaded if true, this operation is multi-threaded (over the internal nodes).
+    ///
+    /// @warning This method can explode the tree's memory footprint, especially if it 
+    /// contains active tiles at the upper levels, e.g. root level!
+    void voxelizeActiveTiles(bool threaded = true);
 
     /// @brief Efficiently merge another tree into this tree using one of several schemes.
     /// @details This operation is primarily intended to combine trees that are mostly
@@ -1273,6 +1300,9 @@ TreeBase::print(std::ostream& os, int /*verboseLevel*/) const
 {
     os << "    Tree Type: " << type()
        << "    Active Voxel Count: " << activeVoxelCount() << std::endl
+#ifndef OPENVDB_2_ABI_COMPATIBLE
+       << "    Active tile Count: " << activeTileCount() << std::endl
+#endif
        << "    Inactive Voxel Count: " << inactiveVoxelCount() << std::endl
        << "    Leaf Node Count: " << leafCount() << std::endl
        << "    Non-leaf Node Count: " << nonLeafCount() << std::endl;
@@ -1761,10 +1791,18 @@ Tree<RootNodeType>::clipUnallocatedNodes()
 
 template<typename RootNodeType>
 inline void
-Tree<RootNodeType>::fill(const CoordBBox& bbox, const ValueType& value, bool active)
+Tree<RootNodeType>::denseFill(const CoordBBox& bbox, const ValueType& value, bool active)
 {
     this->clearAllAccessors();
-    return mRoot.fill(bbox, value, active);
+    return mRoot.denseFill(bbox, value, active);
+}
+
+template<typename RootNodeType>
+inline void
+Tree<RootNodeType>::sparseFill(const CoordBBox& bbox, const ValueType& value, bool active)
+{
+    this->clearAllAccessors();
+    return mRoot.sparseFill(bbox, value, active);
 }
 
 
@@ -1790,10 +1828,10 @@ Tree<RootNodeType>::getBackgroundValue() const
 
 template<typename RootNodeType>
 inline void
-Tree<RootNodeType>::voxelizeActiveTiles()
+Tree<RootNodeType>::voxelizeActiveTiles(bool threaded)
 {
     this->clearAllAccessors();
-    mRoot.voxelizeActiveTiles();
+    mRoot.voxelizeActiveTiles(threaded);
 }
 
 
@@ -2255,9 +2293,11 @@ Tree<RootNodeType>::print(std::ostream& os, int verboseLevel) const
     const uint64_t
         leafCount = *nodeCount.rbegin(),
         numActiveVoxels = this->activeVoxelCount(),
-        numActiveLeafVoxels = this->activeLeafVoxelCount();
+        numActiveLeafVoxels = this->activeLeafVoxelCount(),
+        numActiveTiles = this->activeTileCount();
 
     os << "  Number of active voxels:       " << util::formattedInt(numActiveVoxels) << "\n";
+    os << "  Number of active tiles:        " << util::formattedInt(numActiveTiles) << "\n";
 
     Coord dim(0, 0, 0);
     uint64_t totalVoxels = 0;
@@ -2320,6 +2360,6 @@ Tree<RootNodeType>::print(std::ostream& os, int verboseLevel) const
 
 #endif // OPENVDB_TREE_TREE_HAS_BEEN_INCLUDED
 
-// Copyright (c) 2012-2015 DreamWorks Animation LLC
+// Copyright (c) 2012-2016 DreamWorks Animation LLC
 // All rights reserved. This software is distributed under the
 // Mozilla Public License 2.0 ( http://www.mozilla.org/MPL/2.0/ )

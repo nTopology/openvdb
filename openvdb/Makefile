@@ -1,4 +1,4 @@
-# Copyright (c) 2012-2015 DreamWorks Animation LLC
+# Copyright (c) 2012-2016 DreamWorks Animation LLC
 #
 # All rights reserved. This software is distributed under the
 # Mozilla Public License 2.0 ( http://www.mozilla.org/MPL/2.0/ )
@@ -350,20 +350,21 @@ INCLUDE_NAMES := \
     tools/LevelSetFracture.h \
     tools/LevelSetMeasure.h \
     tools/LevelSetMorph.h \
+    tools/LevelSetPlatonic.h \
     tools/LevelSetRebuild.h \
     tools/LevelSetSphere.h \
     tools/LevelSetTracker.h \
     tools/LevelSetUtil.h \
-    tools/MaskToLevelSet.h \
     tools/MeshToVolume.h \
     tools/Morphology.h \
+    tools/MultiResGrid.h \
     tools/ParticleAtlas.h \
     tools/ParticlesToLevelSet.h \
     tools/PointAdvect.h \
     tools/PointIndexGrid.h \
-    tools/PointMaskGrid.h \
     tools/PointPartitioner.h \
     tools/PointScatter.h \
+    tools/PointsToMask.h \
     tools/PoissonSolver.h \
     tools/Prune.h \
     tools/RayIntersector.h \
@@ -463,7 +464,6 @@ UNITTEST_SRC_NAMES := \
     unittest/TestLevelSetUtil.cc \
     unittest/TestLinearInterp.cc \
     unittest/TestMaps.cc \
-    unittest/TestMaskToLevelSet.cc \
     unittest/TestMat4Metadata.cc \
     unittest/TestMath.cc \
     unittest/TestMeanCurvature.cc \
@@ -471,6 +471,7 @@ UNITTEST_SRC_NAMES := \
     unittest/TestMetadata.cc \
     unittest/TestMetadataIO.cc \
     unittest/TestMetaMap.cc \
+    unittest/TestMultiResGrid.cc \
     unittest/TestName.cc \
     unittest/TestNodeIterator.cc \
     unittest/TestNodeManager.cc \
@@ -478,8 +479,8 @@ UNITTEST_SRC_NAMES := \
     unittest/TestParticleAtlas.cc \
     unittest/TestParticlesToLevelSet.cc \
     unittest/TestPointIndexGrid.cc \
-    unittest/TestPointMaskGrid.cc \
     unittest/TestPointPartitioner.cc \
+    unittest/TestPointsToMask.cc \
     unittest/TestPoissonSolver.cc \
     unittest/TestPrePostAPI.cc \
     unittest/TestQuadraticInterp.cc \
@@ -940,6 +941,6 @@ ifneq (,$(strip $(wildcard $(DEPEND))))
     include $(DEPEND)
 endif
 
-# Copyright (c) 2012-2015 DreamWorks Animation LLC
+# Copyright (c) 2012-2016 DreamWorks Animation LLC
 # All rights reserved. This software is distributed under the
 # Mozilla Public License 2.0 ( http://www.mozilla.org/MPL/2.0/ )
