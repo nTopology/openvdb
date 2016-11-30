@@ -27,7 +27,7 @@
 // LIABILITY FOR ALL CLAIMS REGARDLESS OF THEIR BASIS EXCEED US$250.00.
 //
 ///////////////////////////////////////////////////////////////////////////
-//
+
 /// @file   PointIndexGrid.h
 ///
 /// @brief  Space-partitioning acceleration structure for points. Partitions
@@ -43,21 +43,27 @@
 #ifndef OPENVDB_TOOLS_POINT_INDEX_GRID_HAS_BEEN_INCLUDED
 #define OPENVDB_TOOLS_POINT_INDEX_GRID_HAS_BEEN_INCLUDED
 
+#include "PointPartitioner.h"
 
+#include <openvdb/Exceptions.h>
 #include <openvdb/Grid.h>
 #include <openvdb/Types.h>
 #include <openvdb/math/Transform.h>
-#include <openvdb/tree/Tree.h>
-#include <openvdb/tree/LeafNode.h>
 #include <openvdb/tree/LeafManager.h>
-#include "PointPartitioner.h"
+#include <openvdb/tree/LeafNode.h>
+#include <openvdb/tree/Tree.h>
 
 #include <boost/scoped_array.hpp>
+#include <tbb/atomic.h>
 #include <tbb/blocked_range.h>
 #include <tbb/parallel_for.h>
-#include <tbb/atomic.h>
-#include <iostream>
+#include <algorithm> // for std::min(), std::max()
+#include <cmath> // for std::sqrt()
 #include <deque>
+#include <iostream>
+#include <type_traits> // for std::is_same
+#include <utility> // for std::pair
+#include <vector>
 
 
 namespace openvdb {
@@ -73,11 +79,11 @@ namespace tools {
 template<typename T, Index Log2Dim> struct PointIndexLeafNode; // forward declaration
 
 /// Point index tree configured to match the default OpenVDB tree configuration
-typedef tree::Tree<tree::RootNode<tree::InternalNode<tree::InternalNode
-    <PointIndexLeafNode<PointIndex32, 3>, 4>, 5> > > PointIndexTree;
+using PointIndexTree = tree::Tree<tree::RootNode<tree::InternalNode<tree::InternalNode
+    <PointIndexLeafNode<PointIndex32, 3>, 4>, 5>>>;
 
 /// Point index grid
-typedef Grid<PointIndexTree> PointIndexGrid;
+using PointIndexGrid = Grid<PointIndexTree>;
 
 
 ////////////////////////////////////////
@@ -90,7 +96,7 @@ typedef Grid<PointIndexTree> PointIndexGrid;
 /// struct PointArray
 /// {
 ///     // The type used to represent world-space point positions
-///     typedef VectorType  PosType;
+///     using PosType = VectorType;
 ///
 ///     // Return the number of points in the array
 ///     size_t size() const;
@@ -152,9 +158,9 @@ getValidPointIndexGrid(const PointArrayT& points, const typename GridT::Ptr& gri
 template<typename TreeType = PointIndexTree>
 struct PointIndexIterator
 {
-    typedef tree::ValueAccessor<const TreeType> ConstAccessor;
-    typedef typename TreeType::LeafNodeType     LeafNodeType;
-    typedef typename TreeType::ValueType        ValueType;
+    using ConstAccessor = tree::ValueAccessor<const TreeType>;
+    using LeafNodeType = typename TreeType::LeafNodeType;
+    using ValueType = typename TreeType::ValueType;
 
 
     PointIndexIterator();
@@ -275,10 +281,10 @@ struct PointIndexIterator
 
 
 private:
-    typedef std::pair<const ValueType*, const ValueType*> Range;
-    typedef std::deque<Range>                             RangeDeque;
-    typedef typename RangeDeque::const_iterator           RangeDequeCIter;
-    typedef boost::scoped_array<ValueType>                IndexArray;
+    using Range = std::pair<const ValueType*, const ValueType*>;
+    using RangeDeque = std::deque<Range>;
+    using RangeDequeCIter = typename RangeDeque::const_iterator;
+    using IndexArray = boost::scoped_array<ValueType>;
 
     void clear();
 
@@ -299,7 +305,7 @@ private:
 /// @code
 /// template<typename T>
 /// struct WeightedAverageAccumulator {
-///   typedef T ValueType;
+///   using ValueType = T;
 ///
 ///   WeightedAverageAccumulator(T const * const array, const T radius)
 ///     : mValues(array), mInvRadius(1.0/radius), mWeightSum(0.0), mValueSum(0.0) {}
@@ -324,9 +330,9 @@ private:
 template<typename PointArray, typename TreeType = PointIndexTree>
 struct PointIndexFilter
 {
-    typedef typename PointArray::PosType        PosType;
-    typedef typename PosType::value_type        ScalarType;
-    typedef tree::ValueAccessor<const TreeType> ConstAccessor;
+    using PosType = typename PointArray::PosType;
+    using ScalarType = typename PosType::value_type;
+    using ConstAccessor = tree::ValueAccessor<const TreeType>;
 
     /// @brief Constructor
     /// @param points   world-space point array conforming to the PointArray interface
@@ -380,15 +386,17 @@ struct ValidPartitioningOp
             return;
         }
 
-        typedef typename LeafT::IndexArray          IndexArrayT;
-        typedef typename IndexArrayT::value_type    IndexT;
-        typedef typename PointArrayT::PosType       PosType;
+        using IndexArrayT = typename LeafT::IndexArray;
+        using IndexT = typename IndexArrayT::value_type;
+        using PosType = typename PointArrayT::PosType;
 
         typename LeafT::ValueOnCIter iter;
         Coord voxelCoord;
         PosType point;
 
-        const IndexT *begin = static_cast<IndexT*>(NULL), *end = static_cast<IndexT*>(NULL);
+        const IndexT
+            *begin = static_cast<IndexT*>(nullptr),
+            *end = static_cast<IndexT*>(nullptr);
 
         for (iter = leaf.cbeginValueOn(); iter; ++iter) {
 
@@ -420,8 +428,8 @@ private:
 template<typename LeafNodeT>
 struct PopulateLeafNodesOp
 {
-    typedef uint32_t IndexT;
-    typedef PointPartitioner<IndexT, LeafNodeT::LOG2DIM> Partitioner;
+    using IndexT = uint32_t;
+    using Partitioner = PointPartitioner<IndexT, LeafNodeT::LOG2DIM>;
 
     PopulateLeafNodesOp(boost::scoped_array<LeafNodeT*>& leafNodes,
         const Partitioner& partitioner)
@@ -432,7 +440,7 @@ struct PopulateLeafNodesOp
 
     void operator()(const tbb::blocked_range<size_t>& range) const {
 
-        typedef typename Partitioner::VoxelOffsetType VoxelOffsetT;
+        using VoxelOffsetT = typename Partitioner::VoxelOffsetType;
 
         size_t maxPointCount = 0;
         for (size_t n = range.begin(), N = range.end(); n != N; ++n) {
@@ -508,14 +516,22 @@ template<typename TreeType, typename PointArray>
 inline void
 constructPointTree(TreeType& tree, const math::Transform& xform, const PointArray& points)
 {
-    typedef typename TreeType::LeafNodeType LeafType;
+    using LeafType = typename TreeType::LeafNodeType;
 
     boost::scoped_array<LeafType*> leafNodes;
     size_t leafNodeCount = 0;
 
     {
+        // Important:  Do not disable the cell-centered transform in the PointPartitioner.
+        //             This interpretation is assumed in the PointIndexGrid and all related
+        //             search algorithms.
         PointPartitioner<uint32_t, LeafType::LOG2DIM> partitioner;
         partitioner.construct(points, xform, /*voxelOrder=*/false, /*recordVoxelOffsets=*/true);
+
+        if (!partitioner.usingCellCenteredTransform()) {
+            OPENVDB_THROW(LookupError, "The PointIndexGrid requires a "
+                "cell-centered transform.");
+        }
 
         leafNodeCount = partitioner.size();
         leafNodes.reset(new LeafType*[leafNodeCount]);
@@ -600,11 +616,11 @@ constructExclusiveRegions(std::vector<CoordBBox>& regions,
 template<typename PointArray, typename IndexT>
 struct BBoxFilter
 {
-    typedef typename PointArray::PosType            PosType;
-    typedef typename PosType::value_type            ScalarType;
-    typedef std::pair<const IndexT*, const IndexT*> Range;
-    typedef std::deque<Range>                       RangeDeque;
-    typedef std::deque<IndexT>                      IndexDeque;
+    using PosType = typename PointArray::PosType;
+    using ScalarType = typename PosType::value_type;
+    using Range = std::pair<const IndexT*, const IndexT*>;
+    using RangeDeque = std::deque<Range>;
+    using IndexDeque = std::deque<IndexT>;
 
     BBoxFilter(RangeDeque& ranges, IndexDeque& indices, const BBoxd& bbox,
         const PointArray& points, const math::Transform& xform)
@@ -620,7 +636,9 @@ struct BBoxFilter
     void filterLeafNode(const LeafNodeType& leaf)
     {
         typename LeafNodeType::ValueOnCIter iter;
-        const IndexT *begin = static_cast<IndexT*>(NULL), *end = static_cast<IndexT*>(NULL);
+        const IndexT
+            *begin = static_cast<IndexT*>(nullptr),
+            *end = static_cast<IndexT*>(nullptr);
         for (iter = leaf.cbeginValueOn(); iter; ++iter) {
             leaf.getIndices(iter.pos(), begin, end);
             filterVoxel(iter.getCoord(), begin, end);
@@ -652,11 +670,11 @@ private:
 template<typename PointArray, typename IndexT>
 struct RadialRangeFilter
 {
-    typedef typename PointArray::PosType            PosType;
-    typedef typename PosType::value_type            ScalarType;
-    typedef std::pair<const IndexT*, const IndexT*> Range;
-    typedef std::deque<Range>                       RangeDeque;
-    typedef std::deque<IndexT>                      IndexDeque;
+    using PosType = typename PointArray::PosType;
+    using ScalarType = typename PosType::value_type;
+    using Range = std::pair<const IndexT*, const IndexT*>;
+    using RangeDeque = std::deque<Range>;
+    using IndexDeque = std::deque<IndexT>;
 
     RadialRangeFilter(RangeDeque& ranges, IndexDeque& indices, const Vec3d& xyz, double radius,
         const PointArray& points, const math::Transform& xform,
@@ -717,7 +735,9 @@ struct RadialRangeFilter
         }
 
         typename LeafNodeType::ValueOnCIter iter;
-        const IndexT *begin = static_cast<IndexT*>(NULL), *end = static_cast<IndexT*>(NULL);
+        const IndexT
+            *begin = static_cast<IndexT*>(nullptr),
+            *end = static_cast<IndexT*>(nullptr);
         for (iter = leaf.cbeginValueOn(); iter; ++iter) {
             leaf.getIndices(iter.pos(), begin, end);
             filterVoxel(iter.getCoord(), begin, end);
@@ -776,7 +796,7 @@ inline void
 filteredPointIndexSearchVoxels(RangeFilterType& filter,
     const LeafNodeType& leaf, const Coord& min, const Coord& max)
 {
-    typedef typename LeafNodeType::ValueType PointIndexT;
+    using PointIndexT = typename LeafNodeType::ValueType;
     Index xPos(0), yPos(0), pos(0);
     Coord ijk(0);
 
@@ -806,7 +826,7 @@ template<typename RangeFilterType, typename ConstAccessor>
 inline void
 filteredPointIndexSearch(RangeFilterType& filter, ConstAccessor& acc, const CoordBBox& bbox)
 {
-    typedef typename ConstAccessor::TreeType::LeafNodeType LeafNodeType;
+    using LeafNodeType = typename ConstAccessor::TreeType::LeafNodeType;
     Coord ijk(0), ijkMax(0), ijkA(0), ijkB(0);
     const Coord leafMin = bbox.min() & ~(LeafNodeType::DIM - 1);
     const Coord leafMax = bbox.max() & ~(LeafNodeType::DIM - 1);
@@ -843,9 +863,9 @@ inline void
 pointIndexSearchVoxels(RangeDeque& rangeList,
     const LeafNodeType& leaf, const Coord& min, const Coord& max)
 {
-    typedef typename LeafNodeType::ValueType PointIndexT;
-    typedef typename PointIndexT::IntType    IntT;
-    typedef typename RangeDeque::value_type  Range;
+    using PointIndexT = typename LeafNodeType::ValueType;
+    using IntT = typename PointIndexT::IntType;
+    using Range = typename RangeDeque::value_type;
 
     Index xPos(0), pos(0), zStride = Index(max[2] - min[2]);
     const PointIndexT* dataPtr = &leaf.indices().front();
@@ -882,9 +902,9 @@ template<typename RangeDeque, typename ConstAccessor>
 inline void
 pointIndexSearch(RangeDeque& rangeList, ConstAccessor& acc, const CoordBBox& bbox)
 {
-    typedef typename ConstAccessor::TreeType::LeafNodeType LeafNodeType;
-    typedef typename LeafNodeType::ValueType PointIndexT;
-    typedef typename RangeDeque::value_type  Range;
+    using LeafNodeType = typename ConstAccessor::TreeType::LeafNodeType;
+    using PointIndexT = typename LeafNodeType::ValueType;
+    using Range = typename RangeDeque::value_type;
 
     Coord ijk(0), ijkMax(0), ijkA(0), ijkB(0);
     const Coord leafMin = bbox.min() & ~(LeafNodeType::DIM - 1);
@@ -924,7 +944,7 @@ pointIndexSearch(RangeDeque& rangeList, ConstAccessor& acc, const CoordBBox& bbo
 template<typename TreeType>
 inline
 PointIndexIterator<TreeType>::PointIndexIterator()
-    : mRange(static_cast<ValueType*>(NULL), static_cast<ValueType*>(NULL))
+    : mRange(static_cast<ValueType*>(nullptr), static_cast<ValueType*>(nullptr))
     , mRangeList()
     , mIter(mRangeList.begin())
     , mIndexArray()
@@ -972,7 +992,7 @@ PointIndexIterator<TreeType>::operator=(const PointIndexIterator& rhs)
 template<typename TreeType>
 inline
 PointIndexIterator<TreeType>::PointIndexIterator(const Coord& ijk, ConstAccessor& acc)
-    : mRange(static_cast<ValueType*>(NULL), static_cast<ValueType*>(NULL))
+    : mRange(static_cast<ValueType*>(nullptr), static_cast<ValueType*>(nullptr))
     , mRangeList()
     , mIter(mRangeList.begin())
     , mIndexArray()
@@ -989,7 +1009,7 @@ PointIndexIterator<TreeType>::PointIndexIterator(const Coord& ijk, ConstAccessor
 template<typename TreeType>
 inline
 PointIndexIterator<TreeType>::PointIndexIterator(const CoordBBox& bbox, ConstAccessor& acc)
-    : mRange(static_cast<ValueType*>(NULL), static_cast<ValueType*>(NULL))
+    : mRange(static_cast<ValueType*>(nullptr), static_cast<ValueType*>(nullptr))
     , mRangeList()
     , mIter(mRangeList.begin())
     , mIndexArray()
@@ -1015,8 +1035,8 @@ PointIndexIterator<TreeType>::reset()
         mRange.first = mIndexArray.get();
         mRange.second = mRange.first + mIndexArraySize;
     } else {
-        mRange.first = static_cast<ValueType*>(NULL);
-        mRange.second = static_cast<ValueType*>(NULL);
+        mRange.first = static_cast<ValueType*>(nullptr);
+        mRange.second = static_cast<ValueType*>(nullptr);
     }
 }
 
@@ -1067,8 +1087,8 @@ template<typename TreeType>
 inline void
 PointIndexIterator<TreeType>::clear()
 {
-    mRange.first = static_cast<ValueType*>(NULL);
-    mRange.second = static_cast<ValueType*>(NULL);
+    mRange.first = static_cast<ValueType*>(nullptr);
+    mRange.second = static_cast<ValueType*>(nullptr);
     mRangeList.clear();
     mIter = mRangeList.end();
     mIndexArray.reset();
@@ -1183,7 +1203,7 @@ PointIndexIterator<TreeType>::searchAndUpdate(const Vec3d& center, double radius
     std::deque<ValueType> filteredIndices;
     const double leafNodeDim = double(TreeType::LeafNodeType::DIM);
 
-    typedef point_index_grid_internal::RadialRangeFilter<PointArray, ValueType> FilterT;
+    using FilterT = point_index_grid_internal::RadialRangeFilter<PointArray, ValueType>;
 
     FilterT filter(mRangeList, filteredIndices,
         center, radius, points, xform, leafNodeDim, subvoxelAccuracy);
@@ -1360,11 +1380,11 @@ getValidPointIndexGrid(const PointArrayT& points, const typename GridT::Ptr& gri
 template<typename T, Index Log2Dim>
 struct PointIndexLeafNode : public tree::LeafNode<T, Log2Dim>
 {
-    typedef PointIndexLeafNode<T, Log2Dim>          LeafNodeType;
-    typedef boost::shared_ptr<PointIndexLeafNode>   Ptr;
+    using LeafNodeType = PointIndexLeafNode<T, Log2Dim>;
+    using Ptr = SharedPtr<PointIndexLeafNode>;
 
-    typedef T                       ValueType;
-    typedef std::vector<ValueType>  IndexArray;
+    using ValueType = T;
+    using IndexArray = std::vector<ValueType>;
 
 
     IndexArray& indices() { return mIndices; }
@@ -1387,8 +1407,8 @@ private:
     // to make the derived PointIndexLeafNode class compatible with the tree structure.
 
 public:
-    typedef tree::LeafNode<T, Log2Dim>  BaseLeaf;
-    typedef util::NodeMask<Log2Dim>     NodeMaskType;
+    using BaseLeaf = tree::LeafNode<T, Log2Dim>;
+    using NodeMaskType = util::NodeMask<Log2Dim>;
 
     using BaseLeaf::LOG2DIM;
     using BaseLeaf::TOTAL;
@@ -1460,7 +1480,7 @@ public:
     NodeT* probeNodeAndCache(const Coord&, AccessorT&)
     {
         OPENVDB_NO_UNREACHABLE_CODE_WARNING_BEGIN
-        if (!(boost::is_same<NodeT,PointIndexLeafNode>::value)) return NULL;
+        if (!(std::is_same<NodeT, PointIndexLeafNode>::value)) return nullptr;
         return reinterpret_cast<NodeT*>(this);
         OPENVDB_NO_UNREACHABLE_CODE_WARNING_END
     }
@@ -1481,7 +1501,7 @@ public:
     const NodeT* probeConstNodeAndCache(const Coord&, AccessorT&) const
     {
         OPENVDB_NO_UNREACHABLE_CODE_WARNING_BEGIN
-        if (!(boost::is_same<NodeT,PointIndexLeafNode>::value)) return NULL;
+        if (!(std::is_same<NodeT, PointIndexLeafNode>::value)) return nullptr;
         return reinterpret_cast<const NodeT*>(this);
         OPENVDB_NO_UNREACHABLE_CODE_WARNING_END
     }
@@ -1567,16 +1587,16 @@ public:
     void negate() { assertNonmodifiable(); }
 
 protected:
-    typedef typename BaseLeaf::ValueOn ValueOn;
-    typedef typename BaseLeaf::ValueOff ValueOff;
-    typedef typename BaseLeaf::ValueAll ValueAll;
-    typedef typename BaseLeaf::ChildOn ChildOn;
-    typedef typename BaseLeaf::ChildOff ChildOff;
-    typedef typename BaseLeaf::ChildAll ChildAll;
+    using ValueOn = typename BaseLeaf::ValueOn;
+    using ValueOff = typename BaseLeaf::ValueOff;
+    using ValueAll = typename BaseLeaf::ValueAll;
+    using ChildOn = typename BaseLeaf::ChildOn;
+    using ChildOff = typename BaseLeaf::ChildOff;
+    using ChildAll = typename BaseLeaf::ChildAll;
 
-    typedef typename NodeMaskType::OnIterator    MaskOnIterator;
-    typedef typename NodeMaskType::OffIterator   MaskOffIterator;
-    typedef typename NodeMaskType::DenseIterator MaskDenseIterator;
+    using MaskOnIterator = typename NodeMaskType::OnIterator;
+    using MaskOffIterator = typename NodeMaskType::OffIterator;
+    using MaskDenseIterator = typename NodeMaskType::DenseIterator;
 
     // During topology-only construction, access is needed
     // to protected/private members of other template instances.
@@ -1587,32 +1607,30 @@ protected:
     friend class tree::IteratorBase<MaskDenseIterator, PointIndexLeafNode>;
 
 public:
-
-
-    typedef typename BaseLeaf::template ValueIter<
-        MaskOnIterator, PointIndexLeafNode, const ValueType, ValueOn> ValueOnIter;
-    typedef typename BaseLeaf::template ValueIter<
-        MaskOnIterator, const PointIndexLeafNode, const ValueType, ValueOn> ValueOnCIter;
-    typedef typename BaseLeaf::template ValueIter<
-        MaskOffIterator, PointIndexLeafNode, const ValueType, ValueOff> ValueOffIter;
-    typedef typename BaseLeaf::template ValueIter<
-        MaskOffIterator,const PointIndexLeafNode,const ValueType,ValueOff> ValueOffCIter;
-    typedef typename BaseLeaf::template ValueIter<
-        MaskDenseIterator, PointIndexLeafNode, const ValueType, ValueAll> ValueAllIter;
-    typedef typename BaseLeaf::template ValueIter<
-        MaskDenseIterator,const PointIndexLeafNode,const ValueType,ValueAll> ValueAllCIter;
-    typedef typename BaseLeaf::template ChildIter<
-        MaskOnIterator, PointIndexLeafNode, ChildOn> ChildOnIter;
-    typedef typename BaseLeaf::template ChildIter<
-        MaskOnIterator, const PointIndexLeafNode, ChildOn> ChildOnCIter;
-    typedef typename BaseLeaf::template ChildIter<
-        MaskOffIterator, PointIndexLeafNode, ChildOff> ChildOffIter;
-    typedef typename BaseLeaf::template ChildIter<
-        MaskOffIterator, const PointIndexLeafNode, ChildOff> ChildOffCIter;
-    typedef typename BaseLeaf::template DenseIter<
-        PointIndexLeafNode, ValueType, ChildAll> ChildAllIter;
-    typedef typename BaseLeaf::template DenseIter<
-        const PointIndexLeafNode, const ValueType, ChildAll> ChildAllCIter;
+    using ValueOnIter = typename BaseLeaf::template ValueIter<
+        MaskOnIterator, PointIndexLeafNode, const ValueType, ValueOn>;
+    using ValueOnCIter = typename BaseLeaf::template ValueIter<
+        MaskOnIterator, const PointIndexLeafNode, const ValueType, ValueOn>;
+    using ValueOffIter = typename BaseLeaf::template ValueIter<
+        MaskOffIterator, PointIndexLeafNode, const ValueType, ValueOff>;
+    using ValueOffCIter = typename BaseLeaf::template ValueIter<
+        MaskOffIterator,const PointIndexLeafNode,const ValueType, ValueOff>;
+    using ValueAllIter = typename BaseLeaf::template ValueIter<
+        MaskDenseIterator, PointIndexLeafNode, const ValueType, ValueAll>;
+    using ValueAllCIter = typename BaseLeaf::template ValueIter<
+        MaskDenseIterator,const PointIndexLeafNode,const ValueType, ValueAll>;
+    using ChildOnIter = typename BaseLeaf::template ChildIter<
+        MaskOnIterator, PointIndexLeafNode, ChildOn>;
+    using ChildOnCIter = typename BaseLeaf::template ChildIter<
+        MaskOnIterator, const PointIndexLeafNode, ChildOn>;
+    using ChildOffIter = typename BaseLeaf::template ChildIter<
+        MaskOffIterator, PointIndexLeafNode, ChildOff>;
+    using ChildOffCIter = typename BaseLeaf::template ChildIter<
+        MaskOffIterator, const PointIndexLeafNode, ChildOff>;
+    using ChildAllIter = typename BaseLeaf::template DenseIter<
+        PointIndexLeafNode, ValueType, ChildAll>;
+    using ChildAllCIter = typename BaseLeaf::template DenseIter<
+        const PointIndexLeafNode, const ValueType, ChildAll>;
 
 #define VMASK_ this->getValueMask()
     ValueOnCIter  cbeginValueOn() const  { return ValueOnCIter(VMASK_.beginOn(), this); }

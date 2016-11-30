@@ -842,6 +842,10 @@ SOP_OpenVDBAdvectPoints::evalAdvectionParms(OP_Context& context, AdvectionParms&
             addError(SOP_MESSAGE, "Missing velocity grid");
             return false;
         }
+        if (parms.mVelPrim->getStorageType() != UT_VDB_VEC3F) {
+            addError(SOP_MESSAGE, "Expected velocity grid to be of type Vec3f");
+            return false;
+        }
 
         // Check if the velocity grid uses a staggered representation.
         parms.mStaggered =
@@ -851,7 +855,7 @@ SOP_OpenVDBAdvectPoints::evalAdvectionParms(OP_Context& context, AdvectionParms&
         parms.mSteps    = evalInt("steps", 0, now);
         // The underlying code will accumulate, so to make it substeps
         // we need to divide out.
-        parms.mTimeStep /= (float) parms.mSteps;
+        parms.mTimeStep /= static_cast<float>(parms.mSteps);
         parms.mStreamlines  = bool(evalInt("outputStreamlines", 0, now));
 
         evalString(str, "integration", 0, now);
@@ -883,6 +887,10 @@ SOP_OpenVDBAdvectPoints::evalAdvectionParms(OP_Context& context, AdvectionParms&
 
         if (!parms.mCptPrim) {
             addError(SOP_MESSAGE, "Missing closest point grid");
+            return false;
+        }
+        if (parms.mCptPrim->getStorageType() != UT_VDB_VEC3F) {
+            addError(SOP_MESSAGE, "Expected closest point grid to be of type Vec3f");
             return false;
         }
 
