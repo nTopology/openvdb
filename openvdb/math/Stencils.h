@@ -165,14 +165,14 @@ public:
     /// @brief Return the smallest value in the stencil buffer.
     inline ValueType min() const
     {
-        IterType iter = std::min_element(mStencil.begin(), mStencil.end());
+        auto iter = std::min_element(mStencil.begin(), mStencil.end());
         return *iter;
     }
 
     /// @brief Return the largest value in the stencil buffer.
     inline ValueType max() const
     {
-        IterType iter = std::max_element(mStencil.begin(), mStencil.end());
+        auto iter = std::max_element(mStencil.begin(), mStencil.end());
         return *iter;
     }
 
