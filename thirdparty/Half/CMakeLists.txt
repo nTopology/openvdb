@@ -11,3 +11,8 @@ add_library ( half STATIC
 )
 
 target_include_directories(half INTERFACE .)
+
+if(UNIX) 
+ target_compile_options(half PUBLIC -Wno-register)
+endif()
+
