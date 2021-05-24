@@ -684,8 +684,11 @@ public:
     /// Specifically, active tiles and voxels in this tree are not changed, and
     /// tiles or voxels that were inactive in this tree but active in the other tree
     /// are marked as active in this tree but left with their original values.
+    ///
+    /// @note If preserveTiles is true, any active tile in this topology
+    /// will not be densified by overlapping child topology.
     template<typename OtherRootNodeType>
-    void topologyUnion(const Tree<OtherRootNodeType>& other);
+    void topologyUnion(const Tree<OtherRootNodeType>& other, const bool preserveTiles = false);
 
     /// @brief Intersects this tree's set of active values with the active values
     /// of the other tree, whose @c ValueType may be different.
@@ -930,35 +933,35 @@ public:
 #endif
 
     template<typename BBoxOp>
-    [[deprecated("Use DynamicNodeManager instead")]]
+    [[deprecated("Use tools::visitNodesDepthFirst or DynamicNodeManager instead")]]
     void visitActiveBBox(BBoxOp& op) const { mRoot.visitActiveBBox(op); }
 
     template<typename VisitorOp>
-    [[deprecated("Use DynamicNodeManager instead")]]
+    [[deprecated("Use tools::visitNodesDepthFirst or DynamicNodeManager instead")]]
     void visit(VisitorOp& op);
     template<typename VisitorOp>
-    [[deprecated("Use DynamicNodeManager instead")]]
+    [[deprecated("Use tools::visitNodesDepthFirst or DynamicNodeManager instead")]]
     void visit(const VisitorOp& op);
 
     template<typename VisitorOp>
-    [[deprecated("Use DynamicNodeManager instead")]]
+    [[deprecated("Use tools::visitNodesDepthFirst or DynamicNodeManager instead")]]
     void visit(VisitorOp& op) const;
     template<typename VisitorOp>
-    [[deprecated("Use DynamicNodeManager instead")]]
+    [[deprecated("Use tools::visitNodesDepthFirst or DynamicNodeManager instead")]]
     void visit(const VisitorOp& op) const;
 
     template<typename OtherTreeType, typename VisitorOp>
-    [[deprecated("Use DynamicNodeManager instead")]]
+    [[deprecated("Use tools::visitNodesDepthFirst or DynamicNodeManager instead")]]
     void visit2(OtherTreeType& other, VisitorOp& op);
     template<typename OtherTreeType, typename VisitorOp>
-    [[deprecated("Use DynamicNodeManager instead")]]
+    [[deprecated("Use tools::visitNodesDepthFirst or DynamicNodeManager instead")]]
     void visit2(OtherTreeType& other, const VisitorOp& op);
 
     template<typename OtherTreeType, typename VisitorOp>
-    [[deprecated("Use DynamicNodeManager instead")]]
+    [[deprecated("Use tools::visitNodesDepthFirst or DynamicNodeManager instead")]]
     void visit2(OtherTreeType& other, VisitorOp& op) const;
     template<typename OtherTreeType, typename VisitorOp>
-    [[deprecated("Use DynamicNodeManager instead")]]
+    [[deprecated("Use tools::visitNodesDepthFirst or DynamicNodeManager instead")]]
     void visit2(OtherTreeType& other, const VisitorOp& op) const;
 
 
@@ -1701,10 +1704,10 @@ Tree<RootNodeType>::merge(Tree& other, MergePolicy policy)
 template<typename RootNodeType>
 template<typename OtherRootNodeType>
 inline void
-Tree<RootNodeType>::topologyUnion(const Tree<OtherRootNodeType>& other)
+Tree<RootNodeType>::topologyUnion(const Tree<OtherRootNodeType>& other, const bool preserveTiles)
 {
     this->clearAllAccessors();
-    mRoot.topologyUnion(other.root());
+    mRoot.topologyUnion(other.root(), preserveTiles);
 }
 
 template<typename RootNodeType>

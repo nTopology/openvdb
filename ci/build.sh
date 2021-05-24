@@ -71,7 +71,7 @@ export CMAKE_BUILD_PARALLEL_LEVEL=2
 
 # DebugNoInfo is a custom CMAKE_BUILD_TYPE - no optimizations, no symbols, asserts enabled
 
-mkdir build
+mkdir -p build
 cd build
 
 # Note: all sub binary options are always on and can be toggles with
@@ -80,6 +80,7 @@ cmake \
     -DCMAKE_CXX_FLAGS_DebugNoInfo="" \
     -DCMAKE_BUILD_TYPE=${BUILD_TYPE} \
     -DOPENVDB_USE_DEPRECATED_ABI_6=ON \
+    -DOPENVDB_USE_FUTURE_ABI_9=ON \
     -DUSE_BLOSC=${BLOSC} \
     -DOPENVDB_SIMD=${SIMD} \
     -DOPENVDB_BUILD_VDB_PRINT=ON \

@@ -10,6 +10,8 @@
 cmake_minimum_required(VERSION 3.12)
 project(OpenVDBAXCore LANGUAGES CXX)
 
+include(GNUInstallDirs)
+
 option(OPENVDB_AX_SHARED "Build dynamically linked version of the ax library." ON)
 option(OPENVDB_AX_STATIC "Build statically linked version of the ax library." ON)
 option(USE_NEW_PASS_MANAGER [=[
@@ -191,17 +193,36 @@ else()
   add_library(openvdb_ax ALIAS openvdb_ax_static)
 endif()
 
+# Configure shared settings
+
 set(OPENVDB_AX_CORE_DEPENDENT_LIBS
   ${OPENVDB_LIB}
   ${LLVM_LIBS}
 )
+
+set(OPENVDB_AX_PUBLIC_DEFINES ${LLVM_DEFINITIONS})
+set(OPENVDB_AX_PUBLIC_OPTIONS "")
+
+if(NOT LLVM_ENABLE_ASSERTIONS)
+  # If no asserts in LLVM, build the address sanitiser build with -DNDEBUG
+  # otherwise we get a missing symbol error from LLVM:
+  #  undefined reference to `llvm::cfg::Update<llvm::BasicBlock*>::dump() const'
+  list(APPEND OPENVDB_AX_PUBLIC_DEFINES
+    "$<$<AND:$<CONFIG:ASAN>,$<OR:$<CXX_COMPILER_ID:GNU>,$<CXX_COMPILER_ID:Clang>,$<CXX_COMPILER_ID:AppleClang>>>:NDEBUG>")
+endif()
+if(NOT LLVM_ENABLE_RTTI)
+  # If llvm has been built without rtti, disable the vptr sanitizer for AX
+  list(APPEND OPENVDB_AX_PUBLIC_OPTIONS
+    "$<$<AND:$<CONFIG:UBSAN>,$<OR:$<CXX_COMPILER_ID:GNU>,$<CXX_COMPILER_ID:Clang>,$<CXX_COMPILER_ID:AppleClang>>>:-fno-sanitize=vptr>")
+endif()
 
 ##########################################################################
 
 # Configure static build
 
 if(OPENVDB_AX_STATIC)
-  target_compile_definitions(openvdb_ax_static PUBLIC ${LLVM_DEFINITIONS})
+  target_compile_definitions(openvdb_ax_static PUBLIC ${OPENVDB_AX_PUBLIC_DEFINES})
+  target_compile_options(openvdb_ax_static PUBLIC ${OPENVDB_AX_PUBLIC_OPTIONS})
   target_include_directories(openvdb_ax_static PUBLIC ../)
   target_include_directories(openvdb_ax_static
     SYSTEM PUBLIC ${LLVM_INCLUDE_DIRS}
@@ -228,8 +249,11 @@ if(OPENVDB_AX_STATIC)
   endif()
 endif()
 
+# Configure shared build
+
 if(OPENVDB_AX_SHARED)
-  target_compile_definitions(openvdb_ax_shared PUBLIC ${LLVM_DEFINITIONS})
+  target_compile_definitions(openvdb_ax_shared PUBLIC ${OPENVDB_AX_PUBLIC_DEFINES})
+  target_compile_options(openvdb_ax_shared PUBLIC ${OPENVDB_AX_PUBLIC_OPTIONS})
   target_include_directories(openvdb_ax_shared PUBLIC ../)
   target_include_directories(openvdb_ax_shared
     SYSTEM PUBLIC ${LLVM_INCLUDE_DIRS}
@@ -257,7 +281,6 @@ if(OPENVDB_AX_SHARED)
     list(APPEND RPATHS
       ${Boost_LIBRARY_DIRS}
       ${IlmBase_LIBRARY_DIRS}
-      ${OpenEXR_LIBRARY_DIRS}
       ${Log4cplus_LIBRARY_DIRS}
       ${Blosc_LIBRARY_DIRS}
       ${Tbb_LIBRARY_DIRS}

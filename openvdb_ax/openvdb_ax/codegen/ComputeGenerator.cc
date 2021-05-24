@@ -166,14 +166,18 @@ bool ComputeGenerator::visit(const ast::CommaOperator* comma)
     // traverse the contents of the comma expression
     const size_t children = comma->children();
     llvm::Value* value = nullptr;
+    bool hasErrored = false;
     for (size_t i = 0; i < children; ++i) {
         if (this->traverse(comma->child(i))) {
             value = mValues.top(); mValues.pop();
         }
-        else if (mLog.atErrorLimit()) return false;
+        else {
+            if (mLog.atErrorLimit()) return false;
+            hasErrored = true;
+        }
     }
     // only keep the last value
-    if (!value) return false;
+    if (!value || hasErrored) return false;
     mValues.push(value);
     return true;
 }
@@ -232,9 +236,9 @@ bool ComputeGenerator::visit(const ast::TernaryOperator* tern)
     llvm::Value* trueValue = nullptr;
     llvm::Type* trueType = nullptr;
     bool truePtr = false;
-    bool hasErrored = false; // track error state of this node
     // generate conditional
-    if (this->traverse(tern->condition())) {
+    bool conditionSuccess = this->traverse(tern->condition());
+    if (conditionSuccess) {
         // get the condition
         trueValue = mValues.top(); mValues.pop();
         assert(trueValue);
@@ -252,7 +256,7 @@ bool ComputeGenerator::visit(const ast::TernaryOperator* tern)
         }
         else {
             if (!mLog.error("cannot convert non-scalar type to bool in condition", tern->condition())) return false;
-            hasErrored = true;
+            conditionSuccess = false;
         }
     }
     else if (mLog.atErrorLimit()) return false;
@@ -260,20 +264,25 @@ bool ComputeGenerator::visit(const ast::TernaryOperator* tern)
     // generate true branch, if it exists otherwise take condition as true value
 
     mBuilder.SetInsertPoint(trueBlock);
+    bool trueSuccess = conditionSuccess;
     if (tern->hasTrue()) {
-        if (this->traverse(tern->trueBranch())) {
+        trueSuccess = this->traverse(tern->trueBranch());
+        if (trueSuccess) {
             trueValue = mValues.top(); mValues.pop();// get true value from true expression
             // update true type details
             trueType = trueValue->getType();
         }
         else if (mLog.atErrorLimit()) return false;
     }
+
     llvm::BranchInst* trueBranch = mBuilder.CreateBr(returnBlock);
 
     // generate false branch
 
     mBuilder.SetInsertPoint(falseBlock);
-    if (!this->traverse(tern->falseBranch()) && mLog.atErrorLimit()) return false;
+    bool falseSuccess = this->traverse(tern->falseBranch());
+    // even if the condition isnt successful but the others are, we continue to code gen to find type errors in branches
+    if (!(trueSuccess && falseSuccess)) return false;
 
     llvm::BranchInst* falseBranch = mBuilder.CreateBr(returnBlock);
 
@@ -375,7 +384,8 @@ bool ComputeGenerator::visit(const ast::TernaryOperator* tern)
                 }
             }
             else {
-                mLog.error("unsupported implicit cast in ternary operation", tern);
+                mLog.error("unsupported implicit cast in ternary operation",
+                           tern->hasTrue() ? tern->trueBranch() : tern->falseBranch());
                 return false;
             }
         }
@@ -385,7 +395,7 @@ bool ComputeGenerator::visit(const ast::TernaryOperator* tern)
         // push void value to stop use of return from this expression
         mBuilder.SetInsertPoint(returnBlock);
         mValues.push(falseValue);
-        return !hasErrored;
+        return conditionSuccess && trueSuccess && falseSuccess;
     }
 
     // reset to continue block
@@ -398,7 +408,7 @@ bool ComputeGenerator::visit(const ast::TernaryOperator* tern)
     ternary->addIncoming(falseValue, falseBranch->getParent());
 
     mValues.push(ternary);
-    return !hasErrored;
+    return conditionSuccess && trueSuccess && falseSuccess;
 }
 
 bool ComputeGenerator::visit(const ast::Loop* loop)
@@ -551,7 +561,8 @@ bool ComputeGenerator::visit(const ast::BinaryOperator* node)
         llvm::BasicBlock* rhsBlock = llvm::BasicBlock::Create(mContext, "binary_rhs", mFunction);
         llvm::BasicBlock* returnBlock = llvm::BasicBlock::Create(mContext, "binary_return", mFunction);
         llvm::Value* lhs = nullptr;
-        if (this->traverse(node->lhs())) {
+        bool lhsSuccess = this->traverse(node->lhs());
+        if (lhsSuccess) {
             lhs = mValues.top(); mValues.pop();
             llvm::Type* lhsType = lhs->getType();
             if (lhsType->isPointerTy()) {
@@ -570,13 +581,16 @@ bool ComputeGenerator::visit(const ast::BinaryOperator* node)
                 }
             }
             else {
-                if (!mLog.error("cannot convert non-scalar lhs to bool", node->lhs())) return false;
+                mLog.error("cannot convert non-scalar lhs to bool", node->lhs());
+                lhsSuccess = false;
             }
         }
-        else if (mLog.atErrorLimit()) return false;
+
+        if (mLog.atErrorLimit()) return false;
 
         mBuilder.SetInsertPoint(rhsBlock);
-        if (this->traverse(node->rhs())) {
+        bool rhsSuccess = this->traverse(node->rhs());
+        if (rhsSuccess) {
             llvm::Value* rhs = mValues.top(); mValues.pop();
             llvm::Type* rhsType = rhs->getType();
             if (rhsType->isPointerTy()) {
@@ -596,14 +610,13 @@ bool ComputeGenerator::visit(const ast::BinaryOperator* node)
                     result->addIncoming(rhs, rhsBranch->getParent());
                     mValues.push(result);
                 }
-                else return false;
             }
             else {
                 mLog.error("cannot convert non-scalar rhs to bool", node->rhs());
-                return false;
+                rhsSuccess = false;
             }
         }
-        else if (mLog.atErrorLimit()) return false;
+        return lhsSuccess && rhsSuccess;
     }
     else {
         llvm::Value* lhs = nullptr;
@@ -1098,6 +1111,8 @@ bool ComputeGenerator::visit(const ast::ArrayPack* node)
     // or another array
     if (num == 1) return true;
 
+    llvm::Type* strtype = LLVMType<AXString>::get(mContext);
+
     std::vector<llvm::Value*> values;
     values.reserve(num);
     for (size_t i = 0; i < num; ++i) {
@@ -1105,7 +1120,16 @@ bool ComputeGenerator::visit(const ast::ArrayPack* node)
         if (value->getType()->isPointerTy()) {
             value = mBuilder.CreateLoad(value);
         }
-        values.push_back(value);
+        if (value->getType()->isArrayTy()) {
+            mLog.error("cannot build nested arrays", node->child(num-(i+1)));
+            return false;
+        }
+        if (value->getType() == strtype) {
+            mLog.error("cannot build arrays of strings", node->child(num-(i+1)));
+            return false;
+        }
+
+        values.emplace_back(value);
     }
 
     // reserve the values
@@ -1414,8 +1438,18 @@ bool ComputeGenerator::binaryExpression(llvm::Value*& result, llvm::Value* lhs, 
             rhs = scalarToMatrix(rhs, mBuilder, lsize == 9 ? 3 : 4);
             rtype = rhs->getType()->getPointerElementType();
             rsize = lsize;
+            if (auto* child = node->child(0)) {
+                if (child->isType<ast::ArrayPack>()) {
+                    mLog.error("unable to deduce implicit {...} type for binary op as value "
+                        "may be a matrix or array. assign to a local mat variable", child);
+                    return false;
+                }
+            }
+            if (!mLog.warning("implicit cast to matrix from scalar. resulting "
+                "cast will be equal to scalar * identity.", node->child(1))) return false;
         }
     }
+
     if (rsize == 9 || rsize == 16) {
         if (ltype->isIntegerTy() || ltype->isFloatingPointTy()) {
             if (lhs->getType()->isPointerTy()) {
@@ -1425,6 +1459,15 @@ bool ComputeGenerator::binaryExpression(llvm::Value*& result, llvm::Value* lhs, 
             lhs = scalarToMatrix(lhs, mBuilder, rsize == 9 ? 3 : 4);
             ltype = lhs->getType()->getPointerElementType();
             lsize = rsize;
+            if (auto* child = node->child(1)) {
+                if (child->isType<ast::ArrayPack>()) {
+                    mLog.error("unable to deduce implicit {...} type for binary op as value "
+                        "may be a matrix or array. assign to a local mat variable", child);
+                    return false;
+                }
+            }
+            if (!mLog.warning("implicit cast to matrix from scalar. resulting "
+                "cast will be equal to scalar * identity.", node->child(0))) return false;
         }
     }
 
@@ -1449,7 +1492,7 @@ bool ComputeGenerator::binaryExpression(llvm::Value*& result, llvm::Value* lhs, 
                 result = this->getFunction("pretransform")->execute({lhs, rhs}, mBuilder);
             }
             else if ((lsize == 3 && rsize ==  9) ||
-                     (lsize == 4 && rsize == 16) ||
+                     (lsize == 3 && rsize == 16) ||
                      (lsize == 4 && rsize == 16)) {
                 // vector matrix multiplication all handled through transform
                 result = this->getFunction("transform")->execute({lhs, rhs}, mBuilder);
