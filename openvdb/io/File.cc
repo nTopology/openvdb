@@ -355,6 +355,10 @@ File::open(bool delayLoad, const MappedFile::Notifier& notifier)
     // Read in the file header.
     bool newFile = false;
     try {
+        // NTOP: https://github.com/microsoft/STL/pull/2033; https://github.com/microsoft/STL/issues/1858
+        // exceptions should be set to avoid compatibility issues with
+        // newer versions of the MSVC runtime library
+        newStream->exceptions(std::ios_base::failbit | std::ios_base::badbit);
         newFile = Archive::readHeader(*newStream);
     } catch (IoError& e) {
         if (e.what() && std::string("not a VDB file") == e.what()) {
