@@ -74,8 +74,6 @@ jobs:
           - { image: '2025-clang18.1', cxx: 'clang++', build: 'Release', cmake: '' }
           - { image: '2024-clang17.2', cxx: 'clang++', build: 'Release', cmake: '-DOPENVDB_PYTHON_USE_AX=OFF' }
           - { image: '2024-clang16.2', cxx: 'clang++', build: 'Release', cmake: '' }
-          - { image: '2023-clang15',   cxx: 'clang++', build: 'Release', cmake: '' }
-          - { image: '2023-clang15',   cxx: 'g++',     build: 'Release', cmake: '' }
       fail-fast: false
     steps:
       - uses: actions/checkout@v3
