@@ -140,10 +140,9 @@ jobs:
       run: cd build && ctest -V -E ".*cuda.*|.*mgpu.*"
 
   macos-nanovdb:
-    if: |
-      github.event_name != 'workflow_dispatch' ||
-      github.event.inputs.type == 'all' ||
-      github.event.inputs.type == 'mac'
+    # Disabled on the nTop fork: upstream v12.1.1 predates the current Homebrew oneTBB
+    # (tbb::task::self() is gone) and macos-13 is retired. turbo builds OpenVDB itself.
+    if: false
     runs-on: ${{ matrix.config.runner }}
     env:
       CXX: ${{ matrix.config.cxx }}
