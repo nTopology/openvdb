@@ -6,9 +6,9 @@
 name: Weekly
 
 on:
-  schedule:
-    # run this workflow Sunday 00:00 UTC
-    - cron:  '0 0 * * 0'
+  # Disabled on the nTop fork: the weekly schedule is removed, so none of these
+  # jobs run automatically. They can still be started by hand (workflow_dispatch).
+  # Upstream runs this Sunday 00:00 UTC ('0 0 * * 0').
   workflow_dispatch:
     inputs:
       type:
