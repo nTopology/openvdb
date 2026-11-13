@@ -115,10 +115,15 @@ jobs:
 
   windows:
     # Windows CI. Tests a dynamic build with MD.
-    if: |
-      github.event_name != 'workflow_dispatch' ||
-      github.event.inputs.type == 'all' ||
-      github.event.inputs.type == 'win'
+    # Disabled on the nTop fork: upstream runs this on the ASWF-only runner
+    # windows-2022-8c-32g-300h; forks fall back to the hosted windows-2022 image,
+    # where the build has not been passing.
+    # Re-enable by restoring the original condition (commented out below).
+    if: false
+    # if: |
+    #   github.event_name != 'workflow_dispatch' ||
+    #   github.event.inputs.type == 'all' ||
+    #   github.event.inputs.type == 'win'
     runs-on: ${{ (github.repository_owner == 'AcademySoftwareFoundation' && 'windows-2022-8c-32g-300h') || 'windows-2022' }}
     name: windows
     env:
